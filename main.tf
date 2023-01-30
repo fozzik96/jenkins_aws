@@ -1,5 +1,5 @@
 provider "aws" {
-  region = "us-east-1"
+  region = var.aws_region
 }
 
 resource "aws_default_vpc" "default" {} # This need to be added since AWS Provider v4.29+ to get VPC id
@@ -29,30 +29,28 @@ resource "aws_instance" "my_ubuntu" {
     volume_size = var.root_volume_size
     volume_type = var.root_volume_type
   }
-  key_name = "jenkins-key"
-  tags = {
-    Name    = "My-UbuntuLinux-Server-Jenkins"
-    Owner   = "Kirill Pavlov"
-    project = "Education"
+
+  lifecycle {
+    create_before_destroy = true
   }
+
+  key_name = var.key_pair
+  tags     = merge(var.tags, { Name = "${var.tags["Environment"]}-My-UbuntuLinux-Server-Jenkins" })
+
 }
 
 resource "aws_eip" "jenkins" {
   vpc      = true # Need to be added in new versions of AWS Provider
   instance = aws_instance.my_ubuntu.id
-  tags = {
-    Name  = "EIP for Jenkins Built by Terraform"
-    Owner = "Kirill Pavlov"
-  }
+  tags     = merge(var.tags, { Name = "${var.tags["Environment"]}-EIP for WebServer Built by Terraform" })
 }
-
 resource "aws_security_group" "jenkins_web" {
   name        = "Dynamic-Blocks-SG"
-  description = "Security Group built by Dynamic Blocks"
+  description = "Security Group for my ${var.tags["Environment"]} Jenkins Server"
   vpc_id      = aws_default_vpc.default.id # This need to be added since AWS Provider v4.29+ to set VPC id
 
   dynamic "ingress" {
-    for_each = ["80", "8080", "443", "8843"]
+    for_each = var.jenkins_ports
     content {
       description = "Allow port HTTP"
       from_port   = ingress.value
@@ -63,7 +61,7 @@ resource "aws_security_group" "jenkins_web" {
   }
 
   dynamic "ingress" {
-    for_each = ["80", "8080", "443", "8843"]
+    for_each = var.jenkins_ports
     content {
       description = "Allow port UDP"
       from_port   = ingress.value
@@ -78,7 +76,7 @@ resource "aws_security_group" "jenkins_web" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["10.0.0.0/16"]
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   egress {
@@ -89,8 +87,5 @@ resource "aws_security_group" "jenkins_web" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = {
-    Name  = "Dynamic Block SG by Terraform"
-    Owner = "Kirill Pavlov"
-  }
+  tags = merge(var.tags, { Name = "Dynamic Block SG by Terraform" })
 }
