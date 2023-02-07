@@ -4,9 +4,11 @@ provider "aws" {
 
 resource "aws_default_vpc" "default" {} # This need to be added since AWS Provider v4.29+ to get VPC id
 
+data "aws_region" "current" {}
+data "aws_availability_zones" "available" {}
+
 data "aws_ami" "ubuntu" {
   most_recent = true
-
   filter {
     name   = "name"
     values = ["ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-*"]
@@ -15,35 +17,34 @@ data "aws_ami" "ubuntu" {
     name   = "virtualization-type"
     values = ["hvm"]
   }
-
   owners = ["099720109477"] # Canonical
 }
 
-resource "aws_instance" "my_ubuntu" {
+resource "aws_instance" "jenkins_main" {
+  for_each                    = var.server_settings
   ami                         = data.aws_ami.ubuntu.id
-  instance_type               = var.instance_type
+  instance_type               = each.value["instance_type"]
   vpc_security_group_ids      = [aws_security_group.jenkins_web.id]
   user_data_replace_on_change = true
   user_data                   = file("user_data.sh")
   root_block_device {
-    volume_size = var.root_volume_size
+    volume_size = each.value["root_disksize"]
     volume_type = var.root_volume_type
+    encrypted   = each.value["encrypted"]
   }
-
   lifecycle {
     create_before_destroy = true
   }
-
   key_name = var.key_pair
-  tags     = merge(var.tags, { Name = "${var.tags["Environment"]}-My-UbuntuLinux-Server-Jenkins" })
-
+  tags     = merge(var.tags, { Name = "${var.tags["Environment"]}-My-UbuntuLinux-Server-${each.key}" })
 }
 
 resource "aws_eip" "jenkins" {
   vpc      = true # Need to be added in new versions of AWS Provider
-  instance = aws_instance.my_ubuntu.id
-  tags     = merge(var.tags, { Name = "${var.tags["Environment"]}-EIP for WebServer Built by Terraform" })
+  instance = aws_instance.jenkins_main["web"].id
+  tags     = merge(var.tags, { Name = "${var.tags["Environment"]}-EIP for WebServer Built by Terraform" }, local.tags_for_eip)
 }
+
 resource "aws_security_group" "jenkins_web" {
   name        = "Dynamic-Blocks-SG"
   description = "Security Group for my ${var.tags["Environment"]} Jenkins Server"
@@ -88,4 +89,19 @@ resource "aws_security_group" "jenkins_web" {
   }
 
   tags = merge(var.tags, { Name = "Dynamic Block SG by Terraform" })
+}
+
+locals {
+  region_fullname = data.aws_region.current.description
+  number_of_azs   = length(data.aws_availability_zones.available.names)
+}
+
+locals {
+
+}
+
+locals {
+  tags_for_eip = {
+    Environment = var.tags["Environment"]
+  }
 }
